@@ -23,7 +23,7 @@ export interface IAPIVersionPickerProps {
 export class APIVersionPicker extends React.Component<IAPIVersionPickerProps> {
     constructor(props) {
         super(props);
-
+        
         this.onChange = this.onChange.bind(this);
     }
 
@@ -31,20 +31,22 @@ export class APIVersionPicker extends React.Component<IAPIVersionPickerProps> {
         return (
             <select id={this.props.id}
                 disabled={!constants.enableAPIVersionSelection}
-                defaultValue={constants.enableAPIVersionSelection && !this.props.value ? APIVersionPatches.patch2 : undefined}
+                defaultValue={constants.apiVersion}
                 className="form-control"
-                value={(constants.enableAPIVersionSelection ? this.props.value : APIVersionPatches.patch2)}
+                value={this.props.value}
                 onChange={this.onChange}
             >
-                <option value={APIVersionPatches.patch1}>{APIVersionPatches.patch1}</option>
-                <option value={APIVersionPatches.patch2}>{APIVersionPatches.patch2 + " (default)"}</option>
-                <option value={APIVersionPatches.patch3}>{APIVersionPatches.patch3 + " (testing)"}</option>
+                {Object.values(APIVersionPatches).map(version => (
+                    <option key={version} value={version}>
+                        {version === constants.apiVersion ? `${version} (default)` : version}
+                    </option>
+                ))}
             </select>
         );
     }
 
     private onChange(e: SyntheticEvent) {
         const inputElement = e.target as HTMLSelectElement;
-        this.props.onChange(inputElement.value ? inputElement.value : "2.1-preview.3");
+        this.props.onChange(inputElement.value);
     }
 }

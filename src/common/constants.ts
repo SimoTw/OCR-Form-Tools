@@ -1,7 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { appInfo } from "./appInfo"
+import { appInfo } from "./appInfo";
+import { APIVersionPatches} from "../models/applicationState";
 
 const appVersionRaw = appInfo.version
 const appVersionArr = appVersionRaw.split(".");
@@ -9,7 +10,7 @@ appVersionArr[1] = appVersionArr[1] + "-preview";
 const appVersion = appVersionArr.join(".");
 
 const enableAPIVersionSelection = appInfo.enableAPIVersionSelection;
-const apiVersion = "v2.1-preview.2";
+const apiVersion = APIVersionPatches.patch3;
 
 /**
  * Constants used throughout application
