@@ -923,11 +923,6 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
                 for (const [fieldName, fieldProps] of Object.entries(fields)) {
                     flatFieldProps(fieldName, fieldProps);
                 }
-            }
-            for (const documentResult of documentResults) {
-                const fields = documentResult["fields"];
-                flatFields(fields);
-            }
             return flattedFields;
     }
 
