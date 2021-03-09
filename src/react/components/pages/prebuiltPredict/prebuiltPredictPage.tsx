@@ -21,7 +21,7 @@ import { RouteComponentProps } from "react-router-dom";
 import { bindActionCreators } from "redux";
 import { constants } from "../../../../common/constants";
 import { interpolate, strings } from "../../../../common/strings";
-import { getPrimaryWhiteTheme, getLightGreyTheme } from "../../../../common/themes";
+import { getPrimaryWhiteTheme, getLightGreyTheme, getPrimaryGreyTheme } from "../../../../common/themes";
 import { poll } from "../../../../common/utils";
 import { ErrorCode, FieldFormat, FieldType, IApplicationState, IPrebuiltSettings, ITag } from "../../../../models/applicationState";
 import IAppTitleActions, * as appTitleActions from "../../../../redux/actions/appTitleActions";
@@ -38,7 +38,7 @@ import PreventLeaving from "../../common/preventLeaving/preventLeaving";
 import { CanvasCommandBar } from "../editorPage/canvasCommandBar";
 import { TableView } from "../editorPage/tableView";
 import "../predict/predictPage.scss";
-import PredictResult from "../predict/predictResult";
+import PredictResult, { ITableResultItem } from "../predict/predictResult";
 import { ILoadFileHelper, ILoadFileResult, LoadFileHelper } from "./LoadFileHelper";
 import "./prebuiltPredictPage.scss";
 import { ITableHelper, ITableState, TableHelper } from "./tableHelper";
@@ -46,6 +46,7 @@ import { Toggle } from "office-ui-fabric-react/lib/Toggle";
 import { ILayoutHelper, LayoutHelper } from "./layoutHelper";
 import HtmlFileReader from "../../../../common/htmlFileReader";
 import { URIUtils } from "../../../../common/utils";
+import RegionalTable from "../../common/regionalTable/regionalTable";
 
 interface IPrebuiltTypes {
     name: string;
@@ -83,6 +84,12 @@ export interface IPrebuiltPredictPageState extends ILoadFileResult, ITableState 
     predictionEndpointUrl: string;
 
     liveMode: boolean;
+
+    viewRegionalTable?: boolean;
+    regionalTableToView?: any;
+    tableTagColor?: string;
+    highlightedTableCellRowKey?: string;
+    highlightedTableCellColumnKey?: string;
 }
 
 function mapStateToProps(state: IApplicationState) {
@@ -158,6 +165,12 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
         predictionEndpointUrl: "",
 
         liveMode: true,
+
+        viewRegionalTable: false,
+        regionalTableToView: null,
+        tableTagColor: null,
+        highlightedTableCellRowKey: null,
+        highlightedTableCellColumnKey: null,
     };
 
     private analyzeResults: any;
@@ -203,6 +216,11 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
             if (prevState.highlightedField !== this.state.highlightedField) {
                 this.setPredictedFieldHighlightStatus(this.state.highlightedField);
             }
+
+            if (prevState.highlightedTableCellColumnKey !== this.state.highlightedTableCellColumnKey ||
+                prevState.highlightedTableCellRowKey !== this.state.highlightedTableCellRowKey) {
+                this.setPredictedFieldTableCellHighlightStatus(this.state.highlightedTableCellRowKey, this.state.highlightedTableCellColumnKey)
+        }
         }
 
         if (_prevProps.prebuiltSettings !== this.props.prebuiltSettings) {
@@ -372,13 +390,29 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
                                 onPredictionClick={this.onPredictionClick}
                                 onPredictionMouseEnter={this.onPredictionMouseEnter}
                                 onPredictionMouseLeave={this.onPredictionMouseLeave}
+                                onTablePredictionClick={this.onTablePredictionClick}
                             />
                         }
                         {
                             (Object.keys(predictions).length === 0 && this.state.predictionLoaded) &&
                             <div>{strings.prebuiltPredict.noFieldCanBeExtracted}</div>
                         }
+                        {this.state.viewRegionalTable &&
+                            <div className="m-2">
+                                <h4 className="ml-1 mb-4">View analyzed Table</h4>
+                                <RegionalTable 
+                                    regionalTableToView={this.state.regionalTableToView}
+                                    tableTagColor={this.state.tableTagColor}
+                                    onMouseEnter={this.onMouseEnter}
+                                    onMouseLeave={this.onMouseLeave}
+                                />
+                                <PrimaryButton
+                                    className="mt-4 ml-2"
+                                    theme={getPrimaryGreyTheme()}
+                                    onClick={() => this.setState({ viewRegionalTable: false })}>Back</PrimaryButton>
                     </div>
+                        }
+                </div>
                 </div>
                 <Alert
                     show={this.state.shouldShowAlert}
@@ -754,7 +788,7 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
         return poll(() => ServiceHelper.getWithAutoRetry(operationLocation, { headers }, apiKey as string), 120000, 500);
     }
 
-    private createBoundingBoxVectorFeature = (text, boundingBox, imageExtent, ocrExtent) => {
+    private createBoundingBoxVectorFeature = (text, boundingBox, imageExtent, ocrExtent, row, column) => {
         const coordinates: number[][] = [];
 
         // extent is int[4] to represent image dimentions: [left, bottom, right, top]
@@ -779,6 +813,8 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
             color: _.get(tag, "color", "#333333"),
             fieldName: text,
             isHighlighted,
+            row,
+            column
         });
         return feature;
     }
@@ -810,27 +846,36 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
     private drawPredictionResult = (): void => {
         // Comment this line to prevent clear OCR boundary boxes.
         // this.imageMap.removeAllFeatures();
+        const createFeature = (fieldName, field) => {
+            if (Array.isArray(field)) {
+                field.forEach(field => createFeature(fieldName, field))
+            } else {
+            if (_.get(field, "page", null) === this.state.currentPage) {
+                const text = fieldName;
+                const boundingbox = _.get(field, "boundingBox", []);
+                    const feature = this.createBoundingBoxVectorFeature(text, boundingbox, imageExtent, ocrExtent, field.row, field.column);
+                features.push(feature);
+            }
+        }
+        }
         const features = [];
         const imageExtent = [0, 0, this.state.imageWidth, this.state.imageHeight];
         const ocrForCurrentPage: any = this.getOcrFromAnalyzeResult(this.state.analyzeResult)[this.state.currentPage - 1];
         const ocrExtent = [0, 0, ocrForCurrentPage.width, ocrForCurrentPage.height];
-        const predictions = this.getPredictionsFromAnalyzeResult(this.state.analyzeResult);
-        for (const fieldName of Object.keys(predictions)) {
-            const field = predictions[fieldName];
-            if (_.get(field, "page", null) === this.state.currentPage) {
-                const text = fieldName;
-                const boundingbox = _.get(field, "boundingBox", []);
-                const feature = this.createBoundingBoxVectorFeature(text, boundingbox, imageExtent, ocrExtent);
-                features.push(feature);
-            }
+        const predictions = this.flatFields(this.getPredictionsFromAnalyzeResult(this.state.analyzeResult));
+        for (const [fieldName, field] of Object.entries(predictions)) {
+            createFeature(fieldName, field);
         }
         this.imageMap.addFeatures(features);
         this.tableHelper.drawTables(this.state.currentPage);
     }
 
-    private getPredictionsFromAnalyzeResult(analyzeResult: any) {
-        if (analyzeResult) {
-            const documentResults = _.get(analyzeResult, "documentResults", []);
+    private flatFields = (fields: object = {}): {[key: string]: (object[]|object)} => {
+        /**
+         * @param fields: primitive types, object types liks array, object, and root level field 
+         * @return flattenfields, value is a field props or an array of field props  
+         */
+        const flattedFields = {};
             const isSupportField = fieldName => {
                 // Define list of unsupported field names.
                 const blockedFieldNames = ["ReceiptType"];
@@ -838,15 +883,13 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
             }
             const isRootItemObject = obj => obj.hasOwnProperty("text");
             // flat fieldProps of type "array" and "object", and extract root level field props in "object" type
-            const flattedFields = {};
-            const flatFields = (fields = {}) => {
-                const flatFieldProps = (displayName, fieldProps) => {
-                    if (isSupportField(displayName)) {
+        const flatFieldProps = (fieldName, fieldProps, extraProps={}) => {
+            if (isSupportField(fieldName)) {
                         switch (_.get(fieldProps, "type", "")) {
                             case "array": {
                                 const valueArray = _.get(fieldProps, "valueArray", []);
-                                for (const [index, valueArrayItem] of valueArray.entries()) {
-                                    flatFieldProps(`${displayName} ${index + 1}`, valueArrayItem);
+                        for (const [rowIndex, arrayItem] of valueArray.entries()) {
+                            flatFieldProps(fieldName, arrayItem, {...extraProps, row: `#${rowIndex}`});
                                 }
                                 break;
                             }
@@ -854,19 +897,29 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
                                 // root level field props
                                 const { type, valueObject, ...restProps } = fieldProps;
                                 if (isRootItemObject(restProps)) {
-                                    flatFieldProps(displayName, restProps);
+                            flatFieldProps(fieldName, restProps);
                                 }
-                                for (const [fieldName, objFieldProps] of Object.entries(fieldProps.valueObject)) {
-                                    flatFieldProps(`${displayName}: ${fieldName}`, objFieldProps);
+                        for (const [column, objFieldProps] of Object.entries(fieldProps.valueObject)) {
+                            if (objFieldProps) {
+                                flatFieldProps(fieldName, objFieldProps, {...extraProps, column});
                                 }
+                        }
                                 break;
                             }
                             default: {
-                                flattedFields[displayName] = fieldProps;
+                        fieldProps = {...fieldProps, ...extraProps};
+                        if (flattedFields[fieldName] == null) {
+                            flattedFields[fieldName] = fieldProps;
                             }
+                        else if (Array.isArray(flattedFields[fieldName])) {
+                            flattedFields[fieldName].push(fieldProps)
+                        } else {
+                            flattedFields[fieldName] = [ flattedFields[fieldName], fieldProps];
                         }
                     }
                 }
+            }
+        }
                 for (const [fieldName, fieldProps] of Object.entries(fields)) {
                     flatFieldProps(fieldName, fieldProps);
                 }
@@ -876,6 +929,12 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
                 flatFields(fields);
             }
             return flattedFields;
+    }
+
+    private getPredictionsFromAnalyzeResult(analyzeResult: any) {
+        if (analyzeResult) {
+            const documentResults = _.get(analyzeResult, "documentResults", []);
+            return documentResults.reduce((accFields, documentResult) => ({ ...accFields, ...documentResult.fields }), {});
         } else {
             return {};
         }
@@ -996,5 +1055,34 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
         this.setState({
             predictionEndpointUrl: newValue
         });
+    }
+
+    private onTablePredictionClick = (predictedItem: ITableResultItem, tagColor: string) => {
+        this.setState({ viewRegionalTable: true, regionalTableToView: predictedItem, tableTagColor: tagColor });
+    }
+
+    private onMouseEnter = (rowName: string, columnName: string) => {
+        this.setState({ highlightedTableCellRowKey: rowName, highlightedTableCellColumnKey: columnName })    
+    }
+
+    private onMouseLeave = () => {
+        this.setState({ highlightedTableCellRowKey: null, highlightedTableCellColumnKey: null })    
+    }
+
+    private setPredictedFieldTableCellHighlightStatus = (highlightedTableCellRowKey: string, highlightedTableCellColumnKey: string) => {
+        const features = this.imageMap.getAllFeatures();
+        const hasHighLightedCell = highlightedTableCellRowKey && highlightedTableCellColumnKey;
+        const isHighLightFeature = feature => {
+            const row = feature.get("row");
+            const column = feature.get("column");
+            return row && column && row === highlightedTableCellRowKey && column === highlightedTableCellColumnKey;
+        }
+        for (const feature of features) {
+            if (hasHighLightedCell && isHighLightFeature(feature)) {
+                feature.set("isHighlighted", true);
+            } else {
+                feature.set("isHighlighted", false);
+            }
+        }
     }
 }
