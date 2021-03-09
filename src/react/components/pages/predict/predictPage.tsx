@@ -44,6 +44,7 @@ import "./predictPage.scss";
 import PredictResult, { IAnalyzeModelInfo, ITableResultItem } from "./predictResult";
 import RecentModelsView from "./recentModelsView";
 import { UploadToTrainingSetView } from "./uploadToTrainingSetView";
+import RegionalTable from "../../common/regionalTable/regionalTable";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = constants.pdfjsWorkerSrc(pdfjsLib.version);
 
@@ -441,7 +442,12 @@ export default class PredictPage extends React.Component<IPredictPageProps, IPre
                         {this.state.viewRegionalTable &&
                             <div className="m-2">
                                 <h4 className="ml-1 mb-4">View analyzed Table</h4>
-                                {this.displayRegionalTable(this.state.regionalTableToView)}
+                                <RegionalTable 
+                                    regionalTableToView={this.state.regionalTableToView}
+                                    tableTagColor={this.state.tableTagColor}
+                                    onMouseEnter={this.onMouseEnter}
+                                    onMouseLeave={this.onMouseLeave}
+                                />
                                 <PrimaryButton
                                     className="mt-4 ml-2"
                                     theme={getPrimaryGreyTheme()}
@@ -1375,5 +1381,13 @@ export default class PredictPage extends React.Component<IPredictPageProps, IPre
             await this.props.actions.loadProject(project);
             this.props.appTitleActions.setTitle(project.name);
         }
+    }
+
+    private onMouseEnter = (rowName: string, columnName: string) => {
+        this.setState({ highlightedTableCellRowKey: rowName, highlightedTableCellColumnKey: columnName })    
+    }
+
+    private onMouseLeave = () => {
+        this.setState({ highlightedTableCellRowKey: null, highlightedTableCellColumnKey: null })    
     }
 }
