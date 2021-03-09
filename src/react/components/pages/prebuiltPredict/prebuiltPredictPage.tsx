@@ -358,7 +358,7 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
                                         />
                                     </div>
                                 </div>
-                            </> }
+                            </>}
                         {this.state.isFetching &&
                             <div className="loading-container">
                                 <Spinner
@@ -398,19 +398,11 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
                             <div>{strings.prebuiltPredict.noFieldCanBeExtracted}</div>
                         }
                         {this.state.viewRegionalTable &&
-                            <div className="m-2">
-                                <h4 className="ml-1 mb-4">View analyzed Table</h4>
-                                <RegionalTable 
-                                    regionalTableToView={this.state.regionalTableToView}
-                                    tableTagColor={this.state.tableTagColor}
-                                    onMouseEnter={this.onMouseEnter}
-                                    onMouseLeave={this.onMouseLeave}
+                            <TableView
+                                handleTableViewClose={this.onTablePredictionClose}
+                                tableToView={this.state.regionalTableToView}
+                                showToolTips={true}
                                 />
-                                <PrimaryButton
-                                    className="mt-4 ml-2"
-                                    theme={getPrimaryGreyTheme()}
-                                    onClick={() => this.setState({ viewRegionalTable: false })}>Back</PrimaryButton>
-                    </div>
                         }
                 </div>
                 </div>
@@ -788,7 +780,7 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
         return poll(() => ServiceHelper.getWithAutoRetry(operationLocation, { headers }, apiKey as string), 120000, 500);
     }
 
-    private createBoundingBoxVectorFeature = (text, boundingBox, imageExtent, ocrExtent, row, column) => {
+    private createBoundingBoxVectorFeature = (text, boundingBox, imageExtent, ocrExtent) => {
         const coordinates: number[][] = [];
 
         // extent is int[4] to represent image dimentions: [left, bottom, right, top]
@@ -813,8 +805,6 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
             color: _.get(tag, "color", "#333333"),
             fieldName: text,
             isHighlighted,
-            row,
-            column
         });
         return feature;
     }
@@ -853,7 +843,7 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
             if (_.get(field, "page", null) === this.state.currentPage) {
                 const text = fieldName;
                 const boundingbox = _.get(field, "boundingBox", []);
-                    const feature = this.createBoundingBoxVectorFeature(text, boundingbox, imageExtent, ocrExtent, field.row, field.column);
+                const feature = this.createBoundingBoxVectorFeature(text, boundingbox, imageExtent, ocrExtent);
                 features.push(feature);
             }
         }
@@ -1053,16 +1043,37 @@ export class PrebuiltPredictPage extends React.Component<IPrebuiltPredictPagePro
     }
 
     private onTablePredictionClick = (predictedItem: ITableResultItem, tagColor: string) => {
-        this.setState({ viewRegionalTable: true, regionalTableToView: predictedItem, tableTagColor: tagColor });
+        const predictions = this.getPredictionsFromAnalyzeResult(this.state.analyzeResult)
+        const clickedFieldName = predictedItem?.fieldName;
+        const clickedField = predictions[clickedFieldName];
+        const makeTable = (clickedFieldName) => {
+            const valueArray = clickedFieldName.valueArray || [];
+            const columns = Object.keys(valueArray[0].valueObject);
+            const makeCell = (rowIndex, columnIndex, text = null, confidence = null) => ({
+                rowIndex,
+                columnIndex,
+                text,
+                confidence
+            })
+            const cells = [[makeCell(0, 0, "")].concat(columns.map((text, columnIndex) => makeCell(0, columnIndex+1, text)))]
+            for (let i = 1; i < valueArray.length; i++) {
+                const valueObject = valueArray[i].valueObject || {};
+                cells.push([makeCell(i, 0, `#${i}`)].concat(columns.map((column, columnIndex) => {
+                    const { text, confidence } = valueObject[column] || {};
+                    return makeCell(i, columnIndex+1, text, confidence);
+                })))
+            }
+            const flattenCells = cells.reduce((cells, row) => cells = [...cells, ...row], [])
+            return { cells: flattenCells, columns: cells[0].length, rows: cells.length, fieldName: clickedField, tagColor };
+        }
+        const regionalTableToView = makeTable(clickedField)
+        this.setState({ viewRegionalTable: true, regionalTableToView });
     }
 
-    private onMouseEnter = (rowName: string, columnName: string) => {
-        this.setState({ highlightedTableCellRowKey: rowName, highlightedTableCellColumnKey: columnName })    
+    private onTablePredictionClose = () => {
+        this.setState({viewRegionalTable: false, regionalTableToView: null })
     }
 
-    private onMouseLeave = () => {
-        this.setState({ highlightedTableCellRowKey: null, highlightedTableCellColumnKey: null })    
-    }
 
     private setPredictedFieldTableCellHighlightStatus = (highlightedTableCellRowKey: string, highlightedTableCellColumnKey: string) => {
         const features = this.imageMap.getAllFeatures();
